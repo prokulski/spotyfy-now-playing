@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+logs/
+
+# Virtual environments
+.venv
+
+# token ze spotify
+.cache**
+.env
+
+# notebooki
+*.ipynb
+*.ipynb_checkpoints

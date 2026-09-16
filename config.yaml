@@ -1,0 +1,8 @@
+spotify:
+  scope: "user-read-currently-playing,user-read-playback-state"
+  redirect_uri: "http://127.0.0.1:8080"
+
+database:
+  driver: "postgresql+psycopg2"
+
+sleep_time: 5
