@@ -1,5 +1,5 @@
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
 from sqlalchemy import (
@@ -16,7 +16,8 @@ from sqlalchemy import (
     inspect,
 )
 from sqlalchemy.engine import URL, Engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import InterfaceError, OperationalError
+from sqlalchemy.orm import Session, sessionmaker
 
 from utils.config import DatabaseConfig
 from utils.logger import get_logger
@@ -29,6 +30,7 @@ class Record(Protocol):
 class Database:
     def __init__(self, config: DatabaseConfig):
         self._logger = get_logger()
+        self.config = config
         self.engine = self._create_engine(config)
         self.metadata = MetaData()
         self._session_factory = sessionmaker(bind=self.engine)
@@ -47,7 +49,7 @@ class Database:
             port=config.port,
             database=config.name,
         )
-        return create_engine(url)
+        return create_engine(url, pool_pre_ping=True, pool_recycle=3600)
 
     def build_tables(self) -> tuple[Table, Table]:
         return (
@@ -116,13 +118,46 @@ class Database:
         self._logger.info("Database table created", extra={"table": name})
         return table
 
+    def close(self) -> None:
+        try:
+            self.engine.dispose()
+            self._logger.info("Database connection closed")
+        except Exception as e:
+            self._logger.warning("Error closing database connection", extra={"error": str(e)})
+
+    def reconnect(self) -> None:
+        self._logger.warning("Reconnecting to database...")
+        self.close()
+        self.engine = self._create_engine(self.config)
+        self._session_factory = sessionmaker(bind=self.engine)
+        self._logger.info(
+            "Database engine re-initialized",
+            extra={"database": self.config.name, "host": self.config.host, "port": self.config.port},
+        )
+
+    def _execute_in_session(self, func: Callable[[Session], None]) -> None:
+        for attempt in range(2):
+            try:
+                with self._session_factory.begin() as session:
+                    func(session)
+                return
+            except (OperationalError, InterfaceError) as e:
+                self._logger.warning(
+                    "Database connection lost during execute, reconnecting...",
+                    extra={"error": str(e), "attempt": attempt + 1},
+                )
+                self.reconnect()
+                if attempt == 1:
+                    raise
+                time.sleep(1)
+
     def insert_record(self, table: Table, values: Mapping[str, object]) -> None:
-        with self._session_factory.begin() as session:
-            session.execute(insert(table).values(values))
+        self._execute_in_session(lambda session: session.execute(insert(table).values(values)))
 
     def delete_record(self, table: Table, item_id: str) -> None:
-        with self._session_factory.begin() as session:
-            session.execute(delete(table).where(table.c.item_id == item_id))
+        self._execute_in_session(
+            lambda session: session.execute(delete(table).where(table.c.item_id == item_id))
+        )
 
     def save_record(
         self,
@@ -140,12 +175,14 @@ class Database:
 
         record["timestamp"] = int(time.time())
 
-        try:
-            with self._session_factory.begin() as session:
-                if table.name == "sp_features":
-                    session.execute(delete(table).where(table.c.item_id == record.get("item_id")))
+        def _do_save(session: Session) -> None:
+            if table.name == "sp_features":
+                session.execute(delete(table).where(table.c.item_id == record.get("item_id")))
 
-                session.execute(insert(table).values(record))
+            session.execute(insert(table).values(record))
+
+        try:
+            self._execute_in_session(_do_save)
         except Exception:
             self._logger.exception(
                 "Database record save failed",

@@ -58,8 +58,14 @@ def main():
                             "device_type": playback.device_type,
                         },
                     )
-                    database.save_record(spotify_plays, playback)
-                    database.save_record(spotify_features, item_features, lastfm_info)
+                    try:
+                        database.save_record(spotify_plays, playback)
+                        database.save_record(spotify_features, item_features, lastfm_info)
+                    except Exception as err:
+                        logger.error(
+                            "Database save failed",
+                            extra={"error": str(err), "item_id": item_features.item_id},
+                        )
 
                 # i budujemy obiekt dla nowej
                 playback = SpotifyPlayback.from_spotify_response(currently_playing, int(time.time()))

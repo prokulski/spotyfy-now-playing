@@ -90,6 +90,19 @@ uv run python now_playing.py
 
 Przy pierwszym uruchomieniu Spotipy może otworzyć proces autoryzacji Spotify. Token jest przechowywany w lokalnym pliku `.cache-*`, który jest ignorowany przez Git.
 
+### Docker Compose
+
+Skopiuj `.env.example` do `.env` i uzupełnij dane Spotify, Last.fm oraz PostgreSQL. Następnie zbuduj obraz i uruchom usługi:
+
+```bash
+./build-image.sh
+docker compose up
+```
+
+Compose uruchamia worker oraz PostgreSQL. Przy pierwszym uruchomieniu autoryzuj Spotify w terminalu; token i logi są przechowywane w wolumenie `worker_state`, a dane bazy w `postgres_data`. Obraz nie zawiera pliku `.env`.
+
+Aby zatrzymać usługi, użyj `docker compose down`. Dane pozostaną zachowane; `docker compose down -v` usuwa również wolumeny z tokenem i bazą.
+
 ## Uwagi
 
 - Aktualny utwór jest zapisywany przy wykryciu następnego utworu. Zatrzymanie procesu przed zmianą utworu może więc nie zapisać ostatniego odtworzenia.
